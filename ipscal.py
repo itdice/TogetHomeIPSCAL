@@ -1,3 +1,5 @@
+import socket
+import threading
 import sys
 import numpy as np  # NUMPY
 
@@ -44,7 +46,7 @@ def linear_calibration(rssi_raw_data):
         check_diff = all_diff - average_diff
 
         for num in range(n):
-            if (check_diff[num] > 0):  # If differance value is over average differance value, replace to linear data
+            if check_diff[num] > 0:  # If differance value is over average differance value, replace to linear data
                 rssi_cal_data[cir, num] = linear_data[num]
 
     return rssi_cal_data
@@ -86,64 +88,77 @@ def position_calculate(rssi, pos, preset, trust_distance):
     return result_pos
 
 
-'''
-rssi_raw_data = np.array([[-53., -54., -54., -55., -55., -55., -56., -56., -80., -57.],
-                      [-53., -54., -54., -55., -55., -55., -56., -56., -80., -57.],
-                      [-53., -54., -54., -55., -55., -55., -56., -56., -80., -57.]]) # rssi raw data
-pos_data = np.array([[5., 0.], [10., 8.], [0., 10.]]) # Beacon position data
-preset_data = np.array([[-40.], [-42.], [-43.]]) # Beacon preset 1M rssi data
+def binder(client_socket, addr):
+    print('Connected by', addr)
+    try:
+        # 데이터 수신은 blocking
+        while True:
+            # 30 byte buffer
+            data_len = client_socket.recv(4)
+            # 가장 앞 4 byte 는 전송할 data 의 크기 : int,  little big endian 으로 수신
+            length = int.from_bytes(data_len, "little")
+            # 다시 data 수신 한다.
+            data = client_socket.recv(length)
 
-MAX_TRUST_DISTANCE = 5.500 # meter
-MAX_ERROR = 2.223 # meter
+            received_rssi_raw_data = np.array(
+                [
+                    [data[0] - 256, data[1] - 256, data[2] - 256, data[3] - 256, data[4] - 256,
+                     data[5] - 256, data[6] - 256, data[7] - 256, data[8] - 256, data[9] - 256],
+                    [data[10] - 256, data[11] - 256, data[12] - 256, data[13] - 256, data[14] - 256,
+                     data[15] - 256, data[16] - 256, data[17] - 256, data[18] - 256, data[19] - 256],
+                    [data[20] - 256, data[21] - 256, data[22] - 256, data[23] - 256, data[24] - 256,
+                     data[25] - 256, data[26] - 256, data[27] - 256, data[28] - 256, data[29] - 256]
+                ])  # rssi raw data
 
-filtered_rssi_data = linear_calibration(rssi_raw_data)
+            pos_data = np.array([[data[30], data[31]],
+                                 [data[32], data[33]],
+                                 [data[34], data[35]]])  # Beacon position data
 
-calculated_pos = position_calculate(filtered_rssi_data, pos_data, preset_data, MAX_TRUST_DISTANCE)
-# result position
+            preset_data = np.array(
+                [[data[36] - 256], [data[37] - 256], [data[38] - 256]])  # Beacon preset 1M rssi data
 
-print(calculated_pos)
-'''
+            filtered_rssi_data = linear_calibration(received_rssi_raw_data)
+
+            calculated_pos = position_calculate(filtered_rssi_data, pos_data, preset_data, MAX_TRUST_DISTANCE)
+            # result position
+
+            # debug
+            print(f"Received from {addr}")
+            print(calculated_pos)
+
+            # byte 배열로 변환
+            send_data = str(calculated_pos[0]) + " " + str(calculated_pos[1])
+            msg = send_data.encode()
+
+            msg_len = len(send_data)
+
+            print(send_data)
+            client_socket.sendall(msg_len.to_bytes(4, byteorder='little'))
+            client_socket.sendall(msg)
+
+    except socket.error as exc:
+        print(f"[Except] (address : {addr}) (error :{exc})")
+    finally:
+        client_socket.close()
 
 
 def main(argv):
-    """
-    ipscal a0 a1 b0 b1 c0 c1 d0 e0 f0 f1 f2 g0 h0~ i0~ j0~
-    a -> A Beacon Position Data
-    b -> B Beacon Position Data
-    c -> C Beacon Position Data
-    d -> Max Trust Distance
-    e -> Max Error
-    f -> Preset rssi data
-    g -> Number of rssi data
-    h -> A Beacon rssi data
-    i -> B Beacon rssi data
-    j -> C Beacon rssi data
-    All data must have decimal points
-    """
-    _posA = list(map(float, argv[1:3]))
-    _posB = list(map(float, argv[3:5]))
-    _posC = list(map(float, argv[5:7]))
-    _maxTD = float(argv[7])
-    _maxER = float(argv[8])
-    _preA = list(map(float, argv[9:10]))
-    _preB = list(map(float, argv[10:11]))
-    _preC = list(map(float, argv[11:12]))
-    _num = int(argv[12])
-    _rssA = list(map(float, argv[13:(13 + _num)]))
-    _rssB = list(map(float, argv[(13 + _num):(13 + 2 * _num)]))
-    _rssC = list(map(float, argv[(13 + 2 * _num):(13 + 3 * _num)]))
+    # socket input part
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.bind(('', 9999))
+    server_socket.listen()
 
-    pos_data = np.array([_posA, _posB, _posC])
-    MAX_TRUST_DISTANCE = _maxTD
-    MAX_ERROR = _maxER
-    preset_data = np.array([_preA, _preB, _preC])
-    rssi_raw_data = np.array([_rssA, _rssB, _rssC])
-
-    filtered_rssi_data = linear_calibration(rssi_raw_data)
-    calculated_pos = position_calculate(filtered_rssi_data, pos_data, preset_data, MAX_TRUST_DISTANCE)
-
-    print(calculated_pos[0])
-    print(calculated_pos[1])
+    try:
+        while True:
+            client_socket, addr = server_socket.accept()
+            th = threading.Thread(target=binder, args=(client_socket, addr))
+            # thread 를 이용 해서 client 접속 대기를 만들고 다시 다른 client 대기
+            th.start()
+    except socket.error as exc:
+        print(f"[Except] (error :{exc})")
+    finally:
+        server_socket.close()
 
 
 # PRESET
