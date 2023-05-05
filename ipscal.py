@@ -122,4 +122,5 @@ MAX_TRUST_DISTANCE = 5.500  # meter
 MAX_ERROR = 2.223  # meter
 
 if __name__ == "__main__":
-    eventlet.wsgi.server(eventlet.listen(('', 3000)), app, log_output=False)
+    print("IPSCAL RUN!!")
+    eventlet.wsgi.server(eventlet.listen(('', 3000)), app, log_output=True)
