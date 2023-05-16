@@ -111,7 +111,7 @@ def handle_cal_req(sid, data: dict):
         return None
 
     filtered_rssi_data = linear_calibration(rssi)
-    calculated_pos = position_calculate(rssi, pos, preset, MAX_TRUST_DISTANCE)
+    calculated_pos = position_calculate(filtered_rssi_data, pos, preset, MAX_TRUST_DISTANCE)
 
     print(f"Result = {calculated_pos}")
     sio.emit("cal_res", calculated_pos.tolist())
